@@ -1,6 +1,6 @@
 from __furture__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship  
@@ -16,7 +16,7 @@ class User(Base):
     image_file: Mapped[str None] = mapped_column(
         String(200), 
         nullable=False, 
-        default=None,
+        default=None, 
     )
 
     posts: Mapped[list[Post]] = relationship("Post", back_populates="author")
@@ -41,8 +41,7 @@ class Post(Base):
         )
     date_posted: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 
-        nullable=False, 
-        default=datetime.utcnow,
+        default=lambda: datetime.now(UTC),
     )
     # many to one realationship
     # allows post.author
