@@ -1,6 +1,10 @@
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
 
 app = FastAPI()
 
@@ -36,7 +40,7 @@ def home(request: Request):
     )
 
 
-@app.get("/posts/{post_id}", include_in_schema=False)
+@app.get("/posts/{post_id}", include_in_schema=False, name="post_page")
 def get_post(request: Request, post_id: int):
     for post in posts:
         if post.get("id") == post_id:
@@ -52,3 +56,27 @@ def get_post(request: Request, post_id: int):
 @app.get("/api/posts")
 def get_posts():
     return posts
+
+@app.exception_handler(StarletteHTTPException)
+def general_http_exception_handler(request: Request, exception: StarletteHTTPException):
+    message = (
+        exception.detail 
+        if exception.detail 
+        else "An error occurred."
+    )
+    
+    if request.url.path.startswith("/api"):
+        return JSONResponse(
+            status_code=exception.status_code,
+            content={"detail": message},
+        )
+    return templates.TemplateResponse(
+        request,
+        "error.html",
+        {
+            "status_code": exception.status_code, 
+            "title": exception.status_code,
+            "message": message
+        },
+        status_code=exception.status_code
+    )
