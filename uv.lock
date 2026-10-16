@@ -233,12 +233,14 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
     { name = "sqlalchemy" },
+    { name = "starlette" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.143.2" },
     { name = "sqlalchemy", specifier = ">=2.1.4" },
+    { name = "starlette", specifier = ">=1.8.0" },
 ]
 
 [[package]]
