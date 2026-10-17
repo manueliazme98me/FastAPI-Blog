@@ -34,8 +34,8 @@ class User(Base):
     # allows user.posts
     # Since Post is a future reference, we import it from __future__
     posts: Mapped[list[Post]] = relationship(
-        "Post", 
-        back_populates="author"
+        back_populates="author",
+        cascade="all, delete-orphan"
     )
     
     @property

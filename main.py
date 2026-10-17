@@ -11,7 +11,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import models
 from database import Base, engine, get_db
-from schemas import PostCreate, PostResponse, PostUpdate, UserCreate, UserResponse
+from schemas import (
+    PostCreate, 
+    PostResponse, 
+    PostUpdate, 
+    UserCreate, 
+    UserResponse, 
+    UserUpdate
+)
 
 Base.metadata.create_all(bind=engine)
 
@@ -117,6 +124,73 @@ def get_user_posts(user_id: int, db: Annotated[Session, Depends(get_db)]):
     
     return posts
 
+
+@app.patch("/api/users/{user_id}", response_model=UserResponse)
+def update_user(user_id: int, user_update: UserUpdate, db: Annotated[   Session, Depends(get_db)]):
+    result = db.execute(
+        select(models.User).where(models.User.id == user_id)
+    )
+    user = result.scalars().first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
+        )
+    
+    if user_update.username and user_update.username != user.username:
+        result = db.execute(
+            select(models.User).where(models.User.username == user_update.username)
+        )
+        existing_user = result.scalars().first()
+        
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already exists."
+            )
+            
+    if user_update.email is not None and user_update.email != user.email:
+        result = db.execute(
+            select(models.User).where(models.User.email == user_update.email)
+        )
+        existing_email = result.scalars().first()
+        
+        if existing_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already exists."
+            )
+    
+    if user_update.username is not None:
+        user.username = user_update.username
+    if user_update.email is not None:   
+        user.email = user_update.email
+    if user_update.image_file is not None:
+        user.image_file = user_update.image_file
+    
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.delete("/api/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(
+        select(models.User).where(models.User.id == user_id)
+    )
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
+        )
+
+    db.delete(user)
+    db.commit()
+    
+    
 ## POST_PAGE
 @app.get("/posts/{post_id}", include_in_schema=False)
 def post_page(post_id: int, request: Request, db: Annotated[Session, Depends(get_db)]):
@@ -255,20 +329,37 @@ def update_post(post_id: int, post_update: PostUpdate, db: Annotated[Session, De
 def patch_post(post_id: int, post_update: PostUpdate, db: Annotated[Session, Depends(get_db)]):
     result = db.execute(select(models.Post).where(models.Post.id == post_id))
     post = result.scalars().first()
-    
     if not post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
             detail="Post not found."
         )
     
-    update_data = post_update.model.dump(exclude_unset=True)
+    update_data = post_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(post, field, value)
     
     db.commit()
     db.refresh(post)
     return post
+
+
+#delete post
+@app.delete("/api/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_post(post_id: int, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Post not found."
+        )
+        
+    db.delete(post)
+    db.commit()
+    return post
+
+
 @app.exception_handler(StarletteHTTPException)
 def general_http_exception_handler(request: Request, exception: StarletteHTTPException):
     message = (
