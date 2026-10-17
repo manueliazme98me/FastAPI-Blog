@@ -11,7 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import models
 from database import Base, engine, get_db
-from schemas import PostCreate, PostResponse, UserCreate, UserResponse
+from schemas import PostCreate, PostResponse, PostUpdate, UserCreate, UserResponse
 
 Base.metadata.create_all(bind=engine)
 
@@ -31,7 +31,7 @@ def home(request: Request, db: Annotated[Session, Depends(get_db)]):
     posts = result.scalars().all()
     return templates.TemplateResponse(
         request, 
-        "home.html", 
+        "home.html",
         {"posts": posts, "title": "Home"}
     )
 
@@ -66,7 +66,8 @@ def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)]):
         
     new_user = models.User(
         username=user.username,
-        email=user.email
+        email=user.email,
+        image_file=user.image_file
     )
     db.add(new_user)
     db.commit()
@@ -217,6 +218,57 @@ def get_post(post_id: int, db: Annotated[Session, Depends(get_db)]):
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
 
+@app.put("/api/posts/{post_id}", response_model=PostResponse)
+def update_post(post_id: int, post_update: PostUpdate, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+    
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Post not found."
+        )
+    
+    if post_update.user_id != post.user_id:
+        result = db.execute(
+            select(models.User).where(models.User.id == post_update.user_id)
+        )
+        user = result.scalars().first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found."
+            )
+             
+        # if post_update.title is not None:
+    post.title = post_update.title
+    # if post_update.content is not None:
+    post.content = post_update.content
+    post.user_id = post_update.user_id
+    
+    db.commit()
+    db.refresh(post)
+    return post
+
+
+@app.patch("/api/posts/{post_id}", response_model=PostResponse)
+def patch_post(post_id: int, post_update: PostUpdate, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+    
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Post not found."
+        )
+    
+    update_data = post_update.model.dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(post, field, value)
+    
+    db.commit()
+    db.refresh(post)
+    return post
 @app.exception_handler(StarletteHTTPException)
 def general_http_exception_handler(request: Request, exception: StarletteHTTPException):
     message = (
