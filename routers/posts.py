@@ -1,0 +1,185 @@
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+import models
+from database import get_db
+from schemas import PostCreate, PostResponse, PostUpdate
+
+router = APIRouter()
+templates = Jinja2Templates(directory="templates")
+
+
+## POST_PAGE
+@router.get("/{post_id}", include_in_schema=False)
+async def post_page(post_id: int, request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(
+        select(models.Post)
+        .options(selectinload(models.Post.author))
+        .where(models.Post.id == post_id)
+    )
+    post = result.scalars().first()
+    
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Post not found."
+        )
+    
+    return templates.TemplateResponse(
+        request, 
+        "post.html", 
+        {"post": post, "title": post.title}
+    )
+
+
+@router.get("/{user_id}/posts", include_in_schema=False, name="user_posts")
+async def user_posts_page(
+    request: Request,
+    user_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    result = await db.execute(
+        select(models.User).where(models.User.id == user_id)
+    )
+    user = result.scalars().first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
+        )
+
+    result = await db.execute(
+        select(models.Post).where(models.Post.user_id == user_id)
+    )
+    posts = result.scalars().all()
+
+    if not posts:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No posts found for this user."
+        )
+    
+    return templates.TemplateResponse(
+        request, 
+        "user_posts.html", 
+        {"posts": posts, "user": user, "title": f"{user.username}'s Posts"}
+    )
+
+## get posts
+@router.get("", response_model=list[PostResponse])
+async def get_posts(db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.Post).order_by(models.Post.date_posted.desc()))
+    posts = result.scalars().all()
+    return posts
+
+##create post
+@router.post(
+    "", 
+    response_model=PostResponse, 
+    status_code=status.HTTP_201_CREATED
+)
+async def create_post(post: PostCreate, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(
+        select(models.User).where(models.User.id == post.user_id)
+    )
+    user = result.scalars().first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
+        )
+    
+    new_post = models.Post(
+        title=post.title,
+        content=post.content,
+        user_id=post.user_id
+    )
+    db.add(new_post)
+    await db.commit()
+    await db.refresh(new_post, attribute_names=["author"])
+    return new_post
+
+
+#get post
+@router.get("/{post_id}", response_model=PostResponse)
+async def get_post(post_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+    if post:
+        return post
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+
+@router.put("/{post_id}", response_model=PostResponse)
+async def update_post(post_id: int, post_update: PostUpdate, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+    
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Post not found."
+        )
+    
+    if post_update.user_id != post.user_id:
+        result = await db.execute(
+            select(models.User).where(models.User.id == post_update.user_id)
+        )
+        user = result.scalars().first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found."
+            )
+             
+        # if post_update.title is not None:
+    post.title = post_update.title
+    # if post_update.content is not None:
+    post.content = post_update.content
+    post.user_id = post_update.user_id
+    
+    await db.commit()
+    await db.refresh(post, attribute_names=["author"])
+    return post
+
+
+@router.patch("/{post_id}", response_model=PostResponse)
+async def patch_post(post_id: int, post_update: PostUpdate, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Post not found."
+        )
+    
+    update_data = post_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(post, field, value)
+    
+    await db.commit()
+    await db.refresh(post, attribute_names=["author"])
+    return post
+
+
+#delete post
+@router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_post(post_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Post not found."
+        )
+        
+    await db.delete(post)
+    await db.commit()
+    return post
