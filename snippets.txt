@@ -1,15 +1,381 @@
-posts: list[dict] = [
-    {
-        "id": 1,
-        "author": "Corey Schafer",
-        "title": :FastAPi is Awesome",
-        "content": "This framework is really easy to use and super fsat",
-        "data_psoted": "April 20, 2025"
-    },
-    {
-        "id": 2,
-        "author": "Jane Doe",
-        "title": "Python is Great for Web Development"
-        "date_posted": "April 21, 2025"
+## Paginated Post Response Schema
+class PaginatedPostsResponse(BaseModel):
+    posts: list[PostResponse]
+    total: int
+    skip: int
+    limit: int
+    has_more: bool
+
+
+
+## get_posts - skip and limit parameters
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+
+
+## get_posts - count query
+    count_result = await db.execute(select(func.count()).select_from(models.Post))
+    total = count_result.scalar() or 0
+
+
+## get_posts - return PaginatedPostsResponse
+    return PaginatedPostsResponse(
+        posts=[PostResponse.model_validate(post) for post in posts],
+        total=total,
+        skip=skip,
+        limit=limit,
+        has_more=has_more,
+    )
+
+
+## home route - paginated
+@app.get("/", include_in_schema=False, name="home")
+@app.get("/posts", include_in_schema=False, name="posts")
+async def home(request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
+    count_result = await db.execute(select(func.count()).select_from(models.Post))
+    total = count_result.scalar() or 0
+
+    result = await db.execute(
+        select(models.Post)
+        .options(selectinload(models.Post.author))
+        .order_by(models.Post.date_posted.desc())
+        .limit(settings.posts_per_page),
+    )
+    posts = result.scalars().all()
+
+    has_more = len(posts) < total
+
+    return templates.TemplateResponse(
+        request,
+        "home.html",
+        {
+            "posts": posts,
+            "title": "Home",
+            "limit": settings.posts_per_page,
+            "has_more": has_more,
+        },
+    )
+
+
+## utils.js - escapeHtml and formatDate
+// XSS prevention for dynamic content insertion
+export function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Date formatting to match server's strftime("%B %d, %Y")
+export function formatDate(dateString) {
+  const date = new Date(dateString);
+  return date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "2-digit",
+  });
+}
+
+
+## home template - Load More button
+  {% if has_more %}
+    <div class="text-center mb-4">
+      <button type="button" class="btn btn-outline-primary" id="loadMoreBtn">Load More Posts</button>
+    </div>
+  {% endif %}
+
+
+## home page - scripts block
+{% block scripts %}
+  <script type="module">
+  import { escapeHtml, formatDate } from '/static/js/utils.js';
+
+  // Pagination state - initialized from server-rendered values
+  let currentOffset = {{ limit }};  // Start after server-rendered posts
+  const limit = {{ limit }};
+  let hasMore = {{ 'true' if has_more else 'false' }};
+
+  const postsContainer = document.getElementById('postsContainer');
+  const loadMoreBtn = document.getElementById('loadMoreBtn');
+
+  // Create HTML for a single post (matching server-rendered structure)
+  function createPostHTML(post) {
+    return `
+      <article class="content-section py-3 px-4 mb-4">
+        <div class="d-flex align-items-start gap-4">
+          <img class="rounded-circle article-img flex-shrink-0" src="${escapeHtml(post.author.image_path)}" alt="${escapeHtml(post.author.username)}'s profile picture" width="64" height="64" loading="lazy">
+          <div class="flex-grow-1">
+            <div class="article-metadata mb-2">
+              <a class="me-2" href="/users/${post.author.id}/posts">${escapeHtml(post.author.username)}</a>
+              <small class="text-body-secondary">${formatDate(post.date_posted)}</small>
+            </div>
+            <h2>
+              <a class="article-title" href="/posts/${post.id}">${escapeHtml(post.title)}</a>
+            </h2>
+            <p class="article-content">${escapeHtml(post.content)}</p>
+          </div>
+        </div>
+      </article>
+    `;
+  }
+
+  // Load more posts from the API
+  async function loadMorePosts() {
+    // Disable button and show loading state
+    loadMoreBtn.disabled = true;
+    loadMoreBtn.textContent = 'Loading...';
+
+    let errorOccurred = false;
+
+    try {
+      const response = await fetch(`/api/posts?skip=${currentOffset}&limit=${limit}`);
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch posts');
+      }
+
+      const data = await response.json();
+
+      // Append new posts to the container
+      for (const post of data.posts) {
+        postsContainer.insertAdjacentHTML('beforeend', createPostHTML(post));
+      }
+
+      // Update pagination state
+      currentOffset += data.posts.length;
+      hasMore = data.has_more;
+
+      // Hide button if no more posts
+      if (!hasMore) {
+        loadMoreBtn.classList.add('d-none');
+      }
+    } catch (error) {
+      errorOccurred = true;
+      console.error('Error loading posts:', error);
+      // Show error message and keep button enabled for retry
+      loadMoreBtn.textContent = 'Error - Click to Retry';
+      loadMoreBtn.disabled = false;
+    } finally {
+      // Re-enable button and reset text only if no error occurred
+      if (!errorOccurred && hasMore) {
+        loadMoreBtn.disabled = false;
+        loadMoreBtn.textContent = 'Load More Posts';
+      }
     }
-]
+  }
+
+  // Add click handler if button exists
+  if (loadMoreBtn) {
+    loadMoreBtn.addEventListener('click', loadMorePosts);
+  }
+  </script>
+{% endblock scripts %}
+
+
+## get_user_posts - paginated
+@router.get("/{user_id}/posts", response_model=PaginatedPostsResponse)
+async def get_user_posts(
+    user_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+):
+    result = await db.execute(select(models.User).where(models.User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    count_result = await db.execute(
+        select(func.count())
+        .select_from(models.Post)
+        .where(models.Post.user_id == user_id),
+    )
+    total = count_result.scalar() or 0
+
+    result = await db.execute(
+        select(models.Post)
+        .options(selectinload(models.Post.author))
+        .where(models.Post.user_id == user_id)
+        .order_by(models.Post.date_posted.desc())
+        .offset(skip)
+        .limit(limit),
+    )
+    posts = result.scalars().all()
+
+    has_more = skip + len(posts) < total
+
+    return PaginatedPostsResponse(
+        posts=[PostResponse.model_validate(post) for post in posts],
+        total=total,
+        skip=skip,
+        limit=limit,
+        has_more=has_more,
+    )
+
+
+## user_posts_page route - paginated
+@app.get("/users/{user_id}/posts", include_in_schema=False, name="user_posts")
+async def user_posts_page(
+    request: Request,
+    user_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    result = await db.execute(select(models.User).where(models.User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    count_result = await db.execute(
+        select(func.count())
+        .select_from(models.Post)
+        .where(models.Post.user_id == user_id),
+    )
+    total = count_result.scalar() or 0
+
+    result = await db.execute(
+        select(models.Post)
+        .options(selectinload(models.Post.author))
+        .where(models.Post.user_id == user_id)
+        .order_by(models.Post.date_posted.desc())
+        .limit(settings.posts_per_page),
+    )
+    posts = result.scalars().all()
+
+    has_more = len(posts) < total
+
+    return templates.TemplateResponse(
+        request,
+        "user_posts.html",
+        {
+            "posts": posts,
+            "user": user,
+            "title": f"{user.username}'s Posts",
+            "limit": settings.posts_per_page,
+            "has_more": has_more,
+        },
+    )
+
+
+## user_posts.html - full template
+{% extends "layout.html" %}
+{% block content %}
+  <h1 class="mb-4">Posts by {{ user.username }}</h1>
+  <div id="postsContainer">
+    {% for post in posts %}
+      <article class="content-section py-3 px-4 mb-4">
+        <div class="d-flex align-items-start gap-4">
+          <img class="rounded-circle article-img flex-shrink-0"
+               src="{{ post.author.image_path }}"
+               alt="{{ post.author.username }}'s profile picture"
+               width="64"
+               height="64"
+               loading="lazy">
+          <div class="flex-grow-1">
+            <div class="article-metadata mb-2">
+              <a class="me-2"
+                 href="{{ url_for('user_posts', user_id=post.author.id) }}">{{ post.author.username }}</a>
+              <small class="text-body-secondary">{{ post.date_posted.strftime("%B %d, %Y") }}</small>
+            </div>
+            <h2>
+              <a class="article-title"
+                 href="{{ url_for('post_page', post_id=post.id) }}">{{ post.title }}</a>
+            </h2>
+            <p class="article-content">{{ post.content }}</p>
+          </div>
+        </div>
+      </article>
+    {% else %}
+      <p class="text-body-secondary">No posts by this user yet.</p>
+    {% endfor %}
+  </div>
+
+  {% if has_more %}
+    <div class="text-center mb-4">
+      <button type="button" class="btn btn-outline-primary" id="loadMoreBtn">Load More Posts</button>
+    </div>
+  {% endif %}
+{% endblock content %}
+
+{% block scripts %}
+  <script type="module">
+  import { escapeHtml, formatDate } from '/static/js/utils.js';
+
+  const userId = {{ user.id }};
+  let currentOffset = {{ limit }};
+  const limit = {{ limit }};
+  let hasMore = {{ 'true' if has_more else 'false' }};
+
+  const postsContainer = document.getElementById('postsContainer');
+  const loadMoreBtn = document.getElementById('loadMoreBtn');
+
+  function createPostHTML(post) {
+    return `
+      <article class="content-section py-3 px-4 mb-4">
+        <div class="d-flex align-items-start gap-4">
+          <img class="rounded-circle article-img flex-shrink-0" src="${escapeHtml(post.author.image_path)}" alt="${escapeHtml(post.author.username)}'s profile picture" width="64" height="64" loading="lazy">
+          <div class="flex-grow-1">
+            <div class="article-metadata mb-2">
+              <a class="me-2" href="/users/${post.author.id}/posts">${escapeHtml(post.author.username)}</a>
+              <small class="text-body-secondary">${formatDate(post.date_posted)}</small>
+            </div>
+            <h2>
+              <a class="article-title" href="/posts/${post.id}">${escapeHtml(post.title)}</a>
+            </h2>
+            <p class="article-content">${escapeHtml(post.content)}</p>
+          </div>
+        </div>
+      </article>
+    `;
+  }
+
+  async function loadMorePosts() {
+    loadMoreBtn.disabled = true;
+    loadMoreBtn.textContent = 'Loading...';
+
+    let errorOccurred = false;
+
+    try {
+      const response = await fetch(`/api/users/${userId}/posts?skip=${currentOffset}&limit=${limit}`);
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch posts');
+      }
+
+      const data = await response.json();
+
+      for (const post of data.posts) {
+        postsContainer.insertAdjacentHTML('beforeend', createPostHTML(post));
+      }
+
+      currentOffset += data.posts.length;
+      hasMore = data.has_more;
+
+      if (!hasMore) {
+        loadMoreBtn.classList.add('d-none');
+      }
+    } catch (error) {
+      errorOccurred = true;
+      console.error('Error loading posts:', error);
+      loadMoreBtn.textContent = 'Error - Click to Retry';
+      loadMoreBtn.disabled = false;
+    } finally {
+      if (!errorOccurred && hasMore) {
+        loadMoreBtn.disabled = false;
+        loadMoreBtn.textContent = 'Load More Posts';
+      }
+    }
+  }
+
+  if (loadMoreBtn) {
+    loadMoreBtn.addEventListener('click', loadMorePosts);
+  }
+  </script>
+{% endblock scripts %}
+
+
+##
