@@ -1,21 +1,21 @@
 # FastAPI Blog
 
-A modern blog platform built with FastAPI, SQLAlchemy, and PostgreSQL. The application combines a REST API with server-rendered HTML pages, allowing users to register, authenticate, publish posts, manage profiles, and reset passwords securely.
+A full-stack blog application built with FastAPI, SQLAlchemy, PostgreSQL, and Jinja2 templates. The project combines a modern REST API with server-rendered HTML pages, giving users a streamlined way to register, authenticate, create posts, reset passwords, and manage profile content in one application.
 
 ## Overview
 
-This project is designed as a full-stack blog application with a clean separation between API routes, templates, and backend services. It provides both developer-friendly API endpoints and a user-facing web experience powered by Jinja2 templates.
+This project is designed for a production-style blog workflow with a clean separation between backend logic, database models, API routes, and UI templates. It supports both machine-readable API consumption and a traditional web experience for end users.
 
-Key capabilities include:
+The application includes:
 
 - User registration and authentication
 - JWT-based access control
-- Blog post creation, listing, updating, and deletion
-- User-specific post pages
-- Password reset flow with email delivery
-- Profile image handling and media serving
-- Structured configuration using environment variables
-- Async SQLAlchemy database access
+- Blog post creation, listing, and editing
+- Author-oriented post management
+- Password reset via email
+- Profile image upload and storage
+- Secure configuration via environment variables
+- Async database access using SQLAlchemy
 
 ## Tech Stack
 
@@ -26,69 +26,89 @@ Key capabilities include:
 - Pydantic + Pydantic Settings
 - Jinja2 templates
 - JWT authentication
-- Alembic migrations
+- Alembic migration tooling
 - Pillow for image processing
+- Uvicorn / FastAPI development server
+
+## Architecture
+
+The application follows a simple layered structure:
+
+- `main.py` initializes the FastAPI application and route registration
+- `routers/` contains user and post endpoints
+- `models.py` defines the database schema
+- `schemas.py` contains request and response models
+- `database.py` manages async database sessions
+- `auth.py` handles token creation and user identity checks
+- `templates/` renders browser-facing pages
+- `static/` serves CSS, JavaScript, and other front-end assets
+- `media/` stores uploaded user media such as profile photos
 
 ## Project Structure
 
 ```text
 .
-├── alembic/                  # Database migration files
-├── media/                   # Uploaded media and profile image storage
-├── routers/                 # API route modules
-├── src/fastapi_blog/        # Package entry point
-├── static/                  # CSS, JS, and static assets
-├── templates/               # HTML templates for the frontend
-├── tests/                   # Application import and route checks
-├── .env                     # Local environment configuration
-├── alembic.ini              # Alembic configuration
-├── auth.py                  # Authentication and token helpers
-├── config.py                # Application settings
-├── database.py              # Database engine/session setup
-├── email_utils.py           # Mail delivery helpers
-├── image_utils.py           # Image resizing and validation
+├── alembic/                  # Database migration history and configuration
+├── media/                   # Uploaded media and profile images
+├── routers/                 # API and page route modules
+├── static/                  # Front-end assets (CSS, JS, images)
+├── templates/               # Jinja2 HTML templates for the blog UI
+├── tests/                   # Basic smoke tests
+├── .env                     # Local environment variables
+├── alembic.ini              # Alembic config
+├── auth.py                  # JWT and auth helpers
+├── config.py                # Application settings loaded from environment
+├── database.py              # Async engine and session provider
+├── Dockerfile               # Container build configuration
+├── email_utils.py           # Email delivery utilities
+├── image_utils.py           # Profile image validation and processing
 ├── main.py                  # FastAPI application entry point
 ├── models.py                # SQLAlchemy models
-├── schemas.py               # Pydantic request/response schemas
-├── pyproject.toml           # Dependency and project metadata
+├── populate_db.py           # Seed/sample data script
+├── pyproject.toml           # Project dependencies and metadata
 ├── README.md                # Project documentation
-└── populate_db.py           # Seed or sample data utilities
+├── schemas.py               # Pydantic model definitions
+└── src/fastapi_blog/        # package namespace for the project
 ```
 
 ## Features
 
-### Authentication
+### Authentication and user management
 
-- Secure user registration with validation
-- Login via email and password
-- JWT access token generation
-- Protected routes for authenticated users
-- Password change and reset workflows
+- Email-based user registration
+- Login flow with secure password verification
+- JWT access token issuance
+- Authenticated access checks for protected endpoints
+- Password reset and change workflows
+- Users can view and manage profile-related content
 
 ### Blog functionality
 
-- Create, read, update, and delete posts
-- Paginated post listing
-- User-specific post views
-- Author ownership checks for modification operations
+- Create new blog posts
+- Browse post lists in the home view
+- Open individual post pages
+- Display posts by author
+- Restrict updates/deletes to the post owner
+- Pagination support for large collections
 
 ### Media and UI
 
-- Profile image upload processing
-- Static file serving for media and frontend assets
-- Jinja templates for page rendering
-- Responsive front-end styling and utilities
+- Profile image uploads with resizing and validation
+- Static asset delivery for CSS, JS, and media
+- Jinja2 templates for server-rendered pages
+- Responsive browser user interface
+- Security headers applied at the application middleware layer
 
 ## Prerequisites
 
-Before starting, make sure you have:
+Before running the application, ensure the following are available:
 
 - Python 3.14 or newer
-- PostgreSQL database running locally or remotely
-- A mail provider or SMTP testing service such as Mailtrap for password reset emails
-- Optional: `uv` for dependency management
+- PostgreSQL database instance
+- SMTP-capable mail service or local testing provider such as Mailtrap
+- Optional: `uv` for dependency and environment management
 
-## Getting Started
+## Local Development Setup
 
 ### 1. Clone the repository
 
@@ -97,9 +117,9 @@ git clone https://github.com/manueliazme98me/FastAPI-Blog.git
 cd FastAPI-Blog
 ```
 
-### 2. Configure environment variables
+### 2. Create environment variables
 
-Create a `.env` file in the project root with the following values:
+Create a `.env` file in the project root with the values required by `config.py`:
 
 ```env
 DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/fastapi_blog
@@ -117,7 +137,7 @@ MAIL_USE_TLS=true
 FRONTEND_URL=http://localhost:8000
 ```
 
-> Keep your `.env` file private and never commit credentials to version control.
+> Keep the `.env` file private and never commit secrets to version control.
 
 ### 3. Install dependencies
 
@@ -131,73 +151,110 @@ Or using `pip`:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
 ### 4. Run the application
 
-Development mode:
+Start the development server:
 
 ```bash
 uv run fastapi dev main.py
 ```
 
-Or with Uvicorn directly:
+Alternatively, run it with Uvicorn directly:
 
 ```bash
 uv run uvicorn main:app --reload
 ```
 
-The application will be available at:
+The app becomes available at:
 
-- API: http://localhost:8000
+- Application: http://localhost:8000
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
-## Database Setup
+## Database Setup and Migrations
 
-This project uses Alembic for schema management. To initialize or apply migrations:
+This project uses Alembic for schema management and database evolution.
+
+Apply the migrations to a configured PostgreSQL database:
 
 ```bash
 uv run alembic upgrade head
 ```
 
-If you are working on a fresh database, make sure the `DATABASE_URL` points to a valid PostgreSQL instance before running migrations.
+If you are starting from a blank database, confirm that `DATABASE_URL` points to the correct PostgreSQL instance before running migrations.
 
-## Running Tests
+## Docker Deployment
+
+A Dockerfile is included for containerized deployment. It builds the application with `uv` and runs it with FastAPI on port 8080 by default.
+
+Build the image:
+
+```bash
+docker build -t fastapi-blog .
+```
+
+Run the container:
+
+```bash
+docker run -p 8080:8080 --env-file .env fastapi-blog
+```
+
+## API Overview
+
+The backend exposes two main route groups:
+
+- `/api/users` for authentication, profile operations, and user data
+- `/api/posts` for creating and reading blog content
+
+### Core user endpoints
+
+- `POST /api/users` — register a new user
+- `POST /api/users/token` — authenticate and obtain a JWT
+- `GET /api/users/me` — fetch the current authenticated user
+- `POST /api/users/forgot-password` — request a password reset email
+- `POST /api/users/reset-password` — complete password reset using a token
+- `GET /api/users/{user_id}` — fetch public user data
+- `GET /api/users/{user_id}/posts` — list posts for a specific user
+
+### Core post endpoints
+
+- `GET /api/posts` — list posts
+- `POST /api/posts` — create a post
+- `GET /api/posts/{post_id}` — fetch a specific post
+- `PUT /api/posts/{post_id}` — update a post
+- `DELETE /api/posts/{post_id}` — delete a post
+
+## Security Notes
+
+- Password hashes are generated with a secure hashing strategy.
+- JWTs are used for authenticated access.
+- Sensitive settings are kept in environment variables rather than hard-coded values.
+- Security headers are added at the HTTP middleware layer.
+- Uploaded profile images are processed to reduce risk and enforce size constraints.
+
+## Testing
+
+Run the test suite with:
 
 ```bash
 pytest
 ```
 
-The current test suite checks that the application loads correctly and that key page routes are registered.
-
-## API Highlights
-
-The app exposes two major route groups:
-
-- `/api/users` for authentication, profile actions, and user-related data
-- `/api/posts` for post listing, creation, and author-controlled updates
-
-Authentication endpoints include:
-
-- `POST /api/users/token` for login
-- `GET /api/users/me` for the current authenticated user
-- `POST /api/users/forgot-password`
-- `POST /api/users/reset-password`
-
-## Security Notes
-
-- Password hashes are generated with a secure password hashing strategy.
-- JWT tokens are used for session authentication.
-- Sensitive configuration is loaded from environment variables.
-- Security headers are applied in the application middleware.
+The current tests validate that the app loads correctly and that the primary routes are registered as expected.
 
 ## Contributing
 
-Contributions are welcome. If you plan to extend the project, please keep the code organized, document new features clearly, and validate any behavior with tests before submitting a pull request.
+Contributions are welcome. To maintain quality and consistency:
+
+1. Keep the code modular and readable.
+2. Add or update tests for changed behavior.
+3. Document new endpoints or configuration values.
+4. Validate the project before opening a pull request.
 
 ## License
 
-This project does not currently declare a license file. If you are using it in a public or production environment, confirm the licensing terms before deployment or redistribution.
+This repository does not currently include a license file. If you intend to use or distribute the project publicly, confirm the licensing terms before deployment or redistribution.
