@@ -244,6 +244,7 @@ Run the test suite with:
 pytest
 ```
 
+
 The current tests validate that the app loads correctly and that the primary routes are registered as expected.
 
 ## Contributing
